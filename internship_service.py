@@ -624,11 +624,13 @@ def send_internship_certificate_email(to_email, full_name, intern_id, domain, du
         c.drawRightString(page_w - inner_margin - 4, page_h - inner_margin - 10, f"Certificate Ref: {intern_id}")
 
         # Header logo/brand
-        logo_img = _load_image_reader("logo.png", "https://chakorahub-static-s3.s3.eu-north-1.amazonaws.com/static/images/logo.png")
+        logo_img = _load_image_reader("logo.png", "https://www.chakorahub.com/static/images/logo.png")
         if logo_img:
             logo_w = 36 * mm
             logo_h = 30 * mm
             c.drawImage(logo_img, (page_w - logo_w) / 2, page_h - inner_margin - logo_h - 16, width=logo_w, height=logo_h, preserveAspectRatio=True, mask='auto')
+        else:
+            print("⚠️ WARNING: logo.png could not be loaded. Logo will be missing from the certificate.")
 
         c.setFillColor(primary)
         c.setFont("Helvetica-Bold", 14)
@@ -715,9 +717,11 @@ def send_internship_certificate_email(to_email, full_name, intern_id, domain, du
 
         # Right signatory
         right_x = page_w - 70 * mm
-        sign_img = _load_image_reader("Sign.png", "https://chakorahub-static-s3.s3.eu-north-1.amazonaws.com/static/images/Sign.png")
+        sign_img = _load_image_reader("Sign.png", "https://www.chakorahub.com/static/images/Sign.png")
         if sign_img:
             c.drawImage(sign_img, right_x + 20 * mm, footer_line_y + 12, width=32 * mm, height=14 * mm, preserveAspectRatio=True, mask='auto')
+        else:
+            print("⚠️ WARNING: Sign.png could not be loaded. Signature will be missing from the certificate.")
 
         c.setFillColor(primary_dark)
         c.setFont("Helvetica-Bold", 11)
@@ -732,8 +736,16 @@ def send_internship_certificate_email(to_email, full_name, intern_id, domain, du
         return buffer.read()
 
     subject = f"Internship Certificate - {intern_id}"
-    start_date_text = _format_date_value(start_date)
-    pdf_password = _password_from_start_date(start_date)
+    
+    # Gracefully fallback if start_date is missing to prevent ValueError and 500 server crash
+    parsed_start_date = _parse_date_value(start_date)
+    if parsed_start_date is None:
+        print(f"⚠️ WARNING: start_date is missing or invalid for {intern_id}. Defaulting to current date.")
+        parsed_start_date = datetime.now()
+        
+    start_date_text = parsed_start_date.strftime("%d %B %Y")
+    pdf_password = parsed_start_date.strftime("%Y%m%d")
+    
     duration_text = str(duration or "N/A")
     domain_text = str(domain or "Not specified")
 
