@@ -804,31 +804,39 @@ def send_internship_certificate_email(to_email, full_name, intern_id, domain, du
     raw_data = msg.as_string().encode("utf-8")
 
     try:
-        if SMTP_HOST and SMTP_PORT and SMTP_USER and SMTP_PASSWORD and SMTP_FROM:
-            server = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20)
-            try:
-                server.starttls()
-                server.login(SMTP_USER, SMTP_PASSWORD)
-                server.send_message(msg)
-                print(f"✅ Certificate email sent via SMTP → {to_email} for {intern_id}")
-            except Exception as smtp_exc:
-                print(f"❌ SMTP dispatch failed: {smtp_exc}")
-                raise
-            finally:
-                server.quit()
+        if ses is not None:
+            ses.send_raw_email(
+                Source=APPLICATION_MAIL_FROM,
+                Destinations=destinations,
+                RawMessage={"Data": raw_data},
+            )
+            print(f"✅ Certificate email sent via SES → {to_email} for {intern_id}")
         else:
-            print("⚠️ SMTP config incomplete. Falling back to Local Dev Mock email dispatch.")
+            raise NoCredentialsError()
+    except (ClientError, NoCredentialsError, Exception) as exc:
+        is_cred_error = False
+        if isinstance(exc, NoCredentialsError):
+            is_cred_error = True
+        elif isinstance(exc, ClientError):
+            code = (exc.response or {}).get("Error", {}).get("Code", "")
+            if code in {"InvalidAccessKeyId", "SignatureDoesNotMatch", "InvalidClientTokenId", "AccessDenied"}:
+                is_cred_error = True
+        elif "Unable to locate credentials" in str(exc):
+            is_cred_error = True
+
+        if is_cred_error:
+            print("⚠️ AWS credentials not located or invalid. Falling back to Local Dev Mock email dispatch.")
             print("\n" + "="*50)
-            print("💾 LOCAL DEV MOCK EMAIL DISPATCH")
+            print("💾 LOCAL DEV MOCK EMAIL DISPATCH (SES)")
             print("="*50)
             print(f"To: {to_email}")
             print(f"Subject: {subject}")
             print(f"Attachment size: {len(pdf_bytes)} bytes")
-            print("Status: MOCKED SUCCESS (no SMTP configured)")
+            print("Status: MOCKED SUCCESS (no AWS credentials configured)")
             print("="*50 + "\n")
-    except Exception as exc:
-        print(f"❌ SMTP dispatch failed: {exc}")
-        raise
+        else:
+            print(f"❌ SES dispatch failed: {exc}")
+            raise
 
 
 def json_error(message, status_code):
