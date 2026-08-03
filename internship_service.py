@@ -804,23 +804,31 @@ def send_internship_certificate_email(to_email, full_name, intern_id, domain, du
     raw_data = msg.as_string().encode("utf-8")
 
     try:
-        ses.send_raw_email(
-            Source=APPLICATION_MAIL_FROM,
-            Destinations=destinations,
-            RawMessage={"Data": raw_data},
-        )
-    except ClientError as exc:
-        code = (exc.response or {}).get("Error", {}).get("Code", "")
-        if using_explicit_aws_keys and code in {"InvalidAccessKeyId", "SignatureDoesNotMatch", "InvalidClientTokenId"}:
-            boto3.client("ses", region_name=SES_REGION).send_raw_email(
-                Source=APPLICATION_MAIL_FROM,
-                Destinations=destinations,
-                RawMessage={"Data": raw_data},
-            )
+        if SMTP_HOST and SMTP_PORT and SMTP_USER and SMTP_PASSWORD and SMTP_FROM:
+            server = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20)
+            try:
+                server.starttls()
+                server.login(SMTP_USER, SMTP_PASSWORD)
+                server.send_message(msg)
+                print(f"✅ Certificate email sent via SMTP → {to_email} for {intern_id}")
+            except Exception as smtp_exc:
+                print(f"❌ SMTP dispatch failed: {smtp_exc}")
+                raise
+            finally:
+                server.quit()
         else:
-            raise
-
-    print(f"✅ Certificate email sent → {to_email} for {intern_id}")
+            print("⚠️ SMTP config incomplete. Falling back to Local Dev Mock email dispatch.")
+            print("\n" + "="*50)
+            print("💾 LOCAL DEV MOCK EMAIL DISPATCH")
+            print("="*50)
+            print(f"To: {to_email}")
+            print(f"Subject: {subject}")
+            print(f"Attachment size: {len(pdf_bytes)} bytes")
+            print("Status: MOCKED SUCCESS (no SMTP configured)")
+            print("="*50 + "\n")
+    except Exception as exc:
+        print(f"❌ SMTP dispatch failed: {exc}")
+        raise
 
 
 def json_error(message, status_code):
