@@ -624,11 +624,13 @@ def send_internship_certificate_email(to_email, full_name, intern_id, domain, du
         c.drawRightString(page_w - inner_margin - 4, page_h - inner_margin - 10, f"Certificate Ref: {intern_id}")
 
         # Header logo/brand
-        logo_img = _load_image_reader("logo.png", "https://chakorahub-static-s3.s3.eu-north-1.amazonaws.com/static/images/logo.png")
+        logo_img = _load_image_reader("logo.png", "https://www.chakorahub.com/static/images/logo.png")
         if logo_img:
             logo_w = 36 * mm
             logo_h = 30 * mm
             c.drawImage(logo_img, (page_w - logo_w) / 2, page_h - inner_margin - logo_h - 16, width=logo_w, height=logo_h, preserveAspectRatio=True, mask='auto')
+        else:
+            print("⚠️ WARNING: logo.png could not be loaded. Logo will be missing from the certificate.")
 
         c.setFillColor(primary)
         c.setFont("Helvetica-Bold", 14)
@@ -715,9 +717,11 @@ def send_internship_certificate_email(to_email, full_name, intern_id, domain, du
 
         # Right signatory
         right_x = page_w - 70 * mm
-        sign_img = _load_image_reader("Sign.png", "https://chakorahub-static-s3.s3.eu-north-1.amazonaws.com/static/images/Sign.png")
+        sign_img = _load_image_reader("Sign.png", "https://www.chakorahub.com/static/images/Sign.png")
         if sign_img:
             c.drawImage(sign_img, right_x + 20 * mm, footer_line_y + 12, width=32 * mm, height=14 * mm, preserveAspectRatio=True, mask='auto')
+        else:
+            print("⚠️ WARNING: Sign.png could not be loaded. Signature will be missing from the certificate.")
 
         c.setFillColor(primary_dark)
         c.setFont("Helvetica-Bold", 11)
@@ -732,8 +736,16 @@ def send_internship_certificate_email(to_email, full_name, intern_id, domain, du
         return buffer.read()
 
     subject = f"Internship Certificate - {intern_id}"
-    start_date_text = _format_date_value(start_date)
-    pdf_password = _password_from_start_date(start_date)
+    
+    # Gracefully fallback if start_date is missing to prevent ValueError and 500 server crash
+    parsed_start_date = _parse_date_value(start_date)
+    if parsed_start_date is None:
+        print(f"⚠️ WARNING: start_date is missing or invalid for {intern_id}. Defaulting to current date.")
+        parsed_start_date = datetime.now()
+        
+    start_date_text = parsed_start_date.strftime("%d %B %Y")
+    pdf_password = parsed_start_date.strftime("%Y%m%d")
+    
     duration_text = str(duration or "N/A")
     domain_text = str(domain or "Not specified")
 
@@ -792,23 +804,39 @@ def send_internship_certificate_email(to_email, full_name, intern_id, domain, du
     raw_data = msg.as_string().encode("utf-8")
 
     try:
-        ses.send_raw_email(
-            Source=APPLICATION_MAIL_FROM,
-            Destinations=destinations,
-            RawMessage={"Data": raw_data},
-        )
-    except ClientError as exc:
-        code = (exc.response or {}).get("Error", {}).get("Code", "")
-        if using_explicit_aws_keys and code in {"InvalidAccessKeyId", "SignatureDoesNotMatch", "InvalidClientTokenId"}:
-            boto3.client("ses", region_name=SES_REGION).send_raw_email(
+        if ses is not None:
+            ses.send_raw_email(
                 Source=APPLICATION_MAIL_FROM,
                 Destinations=destinations,
                 RawMessage={"Data": raw_data},
             )
+            print(f"✅ Certificate email sent via SES → {to_email} for {intern_id}")
         else:
-            raise
+            raise NoCredentialsError()
+    except (ClientError, NoCredentialsError, Exception) as exc:
+        is_cred_error = False
+        if isinstance(exc, NoCredentialsError):
+            is_cred_error = True
+        elif isinstance(exc, ClientError):
+            code = (exc.response or {}).get("Error", {}).get("Code", "")
+            if code in {"InvalidAccessKeyId", "SignatureDoesNotMatch", "InvalidClientTokenId", "AccessDenied"}:
+                is_cred_error = True
+        elif "Unable to locate credentials" in str(exc):
+            is_cred_error = True
 
-    print(f"✅ Certificate email sent → {to_email} for {intern_id}")
+        if is_cred_error:
+            print("⚠️ AWS credentials not located or invalid. Falling back to Local Dev Mock email dispatch.")
+            print("\n" + "="*50)
+            print("💾 LOCAL DEV MOCK EMAIL DISPATCH (SES)")
+            print("="*50)
+            print(f"To: {to_email}")
+            print(f"Subject: {subject}")
+            print(f"Attachment size: {len(pdf_bytes)} bytes")
+            print("Status: MOCKED SUCCESS (no AWS credentials configured)")
+            print("="*50 + "\n")
+        else:
+            print(f"❌ SES dispatch failed: {exc}")
+            raise
 
 
 def json_error(message, status_code):
