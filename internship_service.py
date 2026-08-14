@@ -172,8 +172,10 @@ AWS_ACCESS_KEY    = (os.getenv("AWS_ACCESS_KEY", "").strip()
 AWS_SECRET_KEY    = (os.getenv("AWS_SECRET_KEY", "").strip()
                      or os.getenv("AWS_SECRET_ACCESS_KEY", "").strip())
 AWS_SESSION_TOKEN = os.getenv("AWS_SESSION_TOKEN", "").strip()
-AWS_REGION        = os.getenv("AWS_REGION", "eu-north-1").strip()
-S3_BUCKET         = os.getenv("S3_BUCKET", "chakorahub-internship-docs").strip()
+AWS_REGION        = (os.getenv("AWS_REGION", "").strip()
+                     or os.getenv("AWS_DEFAULT_REGION", "").strip()
+                     or "eu-north-1")
+S3_BUCKET         = os.getenv("S3_BUCKET", "chakora-internship-docs-s3").strip()
 
 # ============================================================
 # SMTP / EMAIL CONFIGURATION
@@ -222,7 +224,7 @@ print(f"[startup] dotenv  : {_env_path} ({'found' if _env_path.exists() else 'no
 print(f"[startup] S3      : {S3_BUCKET or 'NOT_SET'}")
 print(f"[startup] Redis   : {_REDIS_SERVICE_URL}")
 
-ALLOWED_EXT = {"pdf", "jpg", "jpeg", "png", "webp"}
+ALLOWED_EXT = {"pdf", "jpg", "jpeg", "png", "webp", "doc", "docx"}
 
 
 def allowed_file(filename):
@@ -1007,11 +1009,11 @@ async def apply_internship(request: Request):
                     ADDRESS, COLLEGE_NAME, BRANCH, YEAR_OF_STUDY, CGPA, GRADUATION_YEAR,
                     INTERNSHIP_DOMAIN, INTERNSHIP_DURATION, START_DATE,
                     WHY_CHAKORA, SKILLS, PORTFOLIO_URL, STATUS,
-                    COLLEGE_ID, TPO_CONTACT, MODE
+                    COLLEGE_ID, TPO_CONTACT, INTERN_MODE
                 ) VALUES (
-                    :1, CURRENT_TIMESTAMP, :2, :3, :4, TO_DATE(NULLIF(:5,'')),
+                    :1, CURRENT_TIMESTAMP, :2, :3, :4, TO_DATE(NULLIF(:5,''), 'YYYY-MM-DD'),
                     NULLIF(:6,''), NULLIF(:7,''), :8, :9, :10, NULLIF(:11,''), :12,
-                    :13, :14, TO_DATE(NULLIF(:15,'')),
+                    :13, :14, TO_DATE(NULLIF(:15,''), 'YYYY-MM-DD'),
                     NULLIF(:16,''), NULLIF(:17,''), NULLIF(:18,''), 'PENDING',
                     :19, NULLIF(:20,''), :21
                 )""",
@@ -1027,8 +1029,8 @@ async def apply_internship(request: Request):
                 ("NOC",     noc_url,    files["noc"].filename),
             ]:
                 cur.execute(
-                    "INSERT INTO NRM_INTERNSHIP_DOCUMENTS (INTERN_ID, DOC_TYPE, S3_URL, ORIGINAL_NAME) "
-                    "VALUES (:1, :2, :3, :4)",
+                    "INSERT INTO NRM_INTERNSHIP_DOCUMENTS (DOC_ID, INTERN_ID, DOC_TYPE, S3_URL, ORIGINAL_NAME) "
+                    "VALUES ((SELECT COALESCE(MAX(DOC_ID), 0) + 1 FROM NRM_INTERNSHIP_DOCUMENTS), :1, :2, :3, :4)",
                     (intern_id, doc_type, url, secure_filename(orig)))
             conn.commit()
             print(f"✅ Application saved: {intern_id}")
@@ -1123,8 +1125,8 @@ async def select_intern(request: Request):
             cur.execute("DELETE FROM NRM_INTERNSHIP_DOCUMENTS "
                         "WHERE INTERN_ID = :1 AND DOC_TYPE = 'SELECTION_LETTER'", (intern_id,))
             cur.execute("INSERT INTO NRM_INTERNSHIP_DOCUMENTS "
-                        "(INTERN_ID, DOC_TYPE, S3_URL, ORIGINAL_NAME) "
-                        "VALUES (:1, 'SELECTION_LETTER', :2, 'selection_letter.pdf')",
+                        "(DOC_ID, INTERN_ID, DOC_TYPE, S3_URL, ORIGINAL_NAME) "
+                        "VALUES ((SELECT COALESCE(MAX(DOC_ID), 0) + 1 FROM NRM_INTERNSHIP_DOCUMENTS), :1, 'SELECTION_LETTER', :2, 'selection_letter.pdf')",
                         (intern_id, letter_url))
             conn.commit()
             print(f"✅ {intern_id} marked SELECTED")
@@ -1405,7 +1407,7 @@ async def my_application(user_id: int):
             cur.execute(
                 "SELECT INTERN_ID, FULL_NAME, COLLEGE_NAME, BRANCH, "
                 "       INTERNSHIP_DOMAIN, INTERNSHIP_DURATION, STATUS, "
-                "       SUBMITTED_AT, MODE, START_DATE "
+                "       SUBMITTED_AT, INTERN_MODE AS MODE, START_DATE "
                 "FROM NRM_INTERNSHIP_APPLICATIONS WHERE EMAIL = :1 "
                 "ORDER BY SUBMITTED_AT DESC", (user_row[0],))
             cols = ["intern_id","full_name","college_name","branch",
