@@ -34,7 +34,7 @@ from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.application import MIMEApplication
 from email.mime.text import MIMEText
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from botocore.exceptions import ClientError, NoCredentialsError
@@ -42,6 +42,7 @@ from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
 import pathlib
 import uvicorn
+import secrets
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
@@ -73,6 +74,77 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ============================================================
+# MAINTENANCE MODE
+# ============================================================
+
+MAINTENANCE_FLAG = pathlib.Path(
+    os.getenv(
+        "MAINTENANCE_FLAG",
+        "/home/ec2-user/internship-maintenance.flag"
+    )
+)
+
+MAINTENANCE_TOKEN = os.getenv("MAINTENANCE_TOKEN")
+
+
+def is_maintenance_enabled() -> bool:
+    return MAINTENANCE_FLAG.exists()
+
+@app.get("/internship/maintenance/status")
+def maintenance_status():
+    return {
+        "maintenance_mode": is_maintenance_enabled()
+    }
+
+
+def verify_maintenance_token(request: Request):
+    supplied_token = request.headers.get(
+        "Authorization",
+        ""
+    ).removeprefix("Bearer ").strip()
+
+    if not MAINTENANCE_TOKEN or not secrets.compare_digest(
+        supplied_token,
+        MAINTENANCE_TOKEN
+    ):
+        
+
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized"
+        )
+
+
+@app.post("/admin/internship/maintenance/on")
+def enable_maintenance(request: Request):
+    verify_maintenance_token(request)
+
+    MAINTENANCE_FLAG.parent.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    MAINTENANCE_FLAG.touch()
+
+    return {
+        "success": True,
+        "maintenance_mode": True
+    }
+
+
+@app.post("/admin/internship/maintenance/off")
+def disable_maintenance(request: Request):
+    verify_maintenance_token(request)
+
+    MAINTENANCE_FLAG.unlink(
+        missing_ok=True
+    )
+
+    return {
+        "success": True,
+        "maintenance_mode": False
+    }
 # ============================================================
 # REDIS SERVICE CLIENT  (HTTP — zero direct redis imports)
 # ============================================================
@@ -913,10 +985,17 @@ def lookup_user_id_by_email(conn, email: str):
 # ============================================================
 @app.post("/api/internship/apply")
 async def apply_internship(request: Request):
+
+   
     """
     Submit an internship application.
     Evicts internship:applications* so the admin list stays fresh.
     """
+    if is_maintenance_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="Internship applications are temporarily unavailable due to maintenance."
+        )
     conn = None
     try:
         form  = await request.form()
