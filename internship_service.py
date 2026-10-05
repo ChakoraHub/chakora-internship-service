@@ -43,6 +43,7 @@ from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
 import pathlib
 import uvicorn
+import secrets
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
@@ -997,6 +998,8 @@ def lookup_user_id_by_email(conn, email: str):
 # ============================================================
 @app.post("/api/internship/apply")
 async def apply_internship(request: Request):
+
+   
     """
     Submit an internship application.
     Evicts internship:applications* so the admin list stays fresh.
