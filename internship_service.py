@@ -34,9 +34,10 @@ from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.application import MIMEApplication
 from email.mime.text import MIMEText
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+import secrets
 from botocore.exceptions import ClientError, NoCredentialsError
 from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
@@ -72,6 +73,89 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ============================================================
+# MAINTENANCE MODE
+# ============================================================
+_default_flag_path = (
+    pathlib.Path(__file__).parent / "internship-maintenance.flag"
+    if os.name == "nt"
+    else pathlib.Path("/home/ec2-user/internship-maintenance.flag")
+)
+
+MAINTENANCE_FLAG = pathlib.Path(
+    os.getenv("MAINTENANCE_FLAG", str(_default_flag_path))
+)
+
+MAINTENANCE_TOKEN = os.getenv("MAINTENANCE_TOKEN", "chakora-maintenance-token")
+
+
+def is_maintenance_enabled() -> bool:
+    return MAINTENANCE_FLAG.exists()
+
+
+@app.get("/internship/maintenance/status")
+@app.get("/api/internship/maintenance/status")
+def maintenance_status():
+    return {
+        "success": True,
+        "maintenance_mode": is_maintenance_enabled(),
+        "message": "Maintenance is active" if is_maintenance_enabled() else "Service is operational"
+    }
+
+
+def verify_maintenance_token(request: Request):
+    auth_header = request.headers.get("Authorization", "")
+    supplied_token = auth_header.removeprefix("Bearer ").strip() if auth_header.startswith("Bearer ") else auth_header.strip()
+
+    expected_token = (MAINTENANCE_TOKEN or "chakora-maintenance-token").strip()
+
+    if not secrets.compare_digest(
+        supplied_token,
+        expected_token
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized"
+        )
+
+
+@app.post("/admin/internship/maintenance/on")
+@app.post("/api/admin/internship/maintenance/on")
+@app.post("/api/internship/maintenance/on")
+def enable_maintenance(request: Request):
+    verify_maintenance_token(request)
+
+    MAINTENANCE_FLAG.parent.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    MAINTENANCE_FLAG.touch()
+
+    return {
+        "success": True,
+        "maintenance_mode": True,
+        "message": "Internship maintenance mode enabled"
+    }
+
+
+@app.post("/admin/internship/maintenance/off")
+@app.post("/api/admin/internship/maintenance/off")
+@app.post("/api/internship/maintenance/off")
+def disable_maintenance(request: Request):
+    verify_maintenance_token(request)
+
+    MAINTENANCE_FLAG.unlink(
+        missing_ok=True
+    )
+
+    return {
+        "success": True,
+        "maintenance_mode": False,
+        "message": "Internship maintenance mode disabled"
+    }
+
 
 # ============================================================
 # REDIS SERVICE CLIENT  (HTTP — zero direct redis imports)
@@ -917,6 +1001,9 @@ async def apply_internship(request: Request):
     Submit an internship application.
     Evicts internship:applications* so the admin list stays fresh.
     """
+    if is_maintenance_enabled():
+        return json_error("Internship applications are temporarily unavailable due to maintenance.", 503)
+
     conn = None
     try:
         form  = await request.form()
