@@ -13,38 +13,40 @@ jobs:
     steps:
       - name: Enable maintenance through Internship FastAPI
         env:
-          MAINTENANCE_ON_URL: ${{ secrets.INTERNSHIP_MAINTENANCE_ON_URL }}
+          INTERNSHIP_MAINTENANCE_ON_URL: ${{ secrets.INTERNSHIP_MAINTENANCE_ON_URL }}
+          MAINTENANCE_ON_URL: ${{ secrets.MAINTENANCE_ON_URL }}
           MAINTENANCE_TOKEN: ${{ secrets.MAINTENANCE_TOKEN }}
         run: |
           set -e
+          TARGET_URL="${INTERNSHIP_MAINTENANCE_ON_URL:-$MAINTENANCE_ON_URL}"
           echo "[maintenance:on] Starting maintenance enable request"
-
-          test -n "$MAINTENANCE_ON_URL" || {
-            echo "Missing INTERNSHIP_MAINTENANCE_ON_URL secret"
-            exit 1
-          }
-
+          test -n "$TARGET_URL" || { echo "Missing INTERNSHIP_MAINTENANCE_ON_URL or MAINTENANCE_ON_URL secret"; exit 1; }
           if [ -n "$MAINTENANCE_TOKEN" ]; then
             echo "[maintenance:on] MAINTENANCE_TOKEN is configured (length: ${#MAINTENANCE_TOKEN})"
           else
             echo "[maintenance:on] MAINTENANCE_TOKEN is empty"
             exit 1
           fi
-
-          status=$(curl --silent --show-error --location --max-time 20             --output maintenance-on-response.txt             --dump-header maintenance-on-headers.txt             --write-out "%{http_code}"             --header "Authorization: Bearer $MAINTENANCE_TOKEN"             --request POST "$MAINTENANCE_ON_URL" || true)
-
+          echo "[maintenance:on] Endpoint is configured"
+          status=$(curl --silent --show-error --location --max-time 20 \
+            --output maintenance-on-response.txt \
+            --dump-header maintenance-on-headers.txt \
+            --write-out "%{http_code}" \
+            --header "Authorization: Bearer $MAINTENANCE_TOKEN" \
+            --request POST "$TARGET_URL" || true)
           echo "[maintenance:on] HTTP status: $status"
+          echo "[maintenance:on] Response headers:"
+          sed 's/[Aa]uthorization:[^[:space:]]*/Authorization: [redacted]/g' maintenance-on-headers.txt || true
+          echo "[maintenance:on] Response body:"
           cat maintenance-on-response.txt || true
-
           if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
             echo "[maintenance:on] Request failed"
             exit 1
           fi
-
           echo "[maintenance:on] Maintenance enabled successfully"
 
   deploy:
-    name: Deploy Internship Service to EC2
+    name: Deploy Internship to EC2
     runs-on: ubuntu-latest
     needs: enable-maintenance
     steps:
@@ -57,21 +59,22 @@ jobs:
           script: |
             set -e
             cd "${{ secrets.APP_PATH }}"
-
             git fetch origin main
             git checkout -f -B main origin/main
-
-            ./venv/bin/pip install -r requirements.txt
-
-            pm2 restart internship-service
-
-            echo "Internship deployment commands completed successfully."
+            if [ -d "intern-venv" ]; then
+              ./intern-venv/bin/pip install -r requirements.txt
+            elif [ -d "venv" ]; then
+              ./venv/bin/pip install -r requirements.txt
+            else
+              pip install -r requirements.txt
+            fi
+            pm2 restart internship-service || pm2 restart "${{ secrets.PM2_SERVICE_NAME }}"
+            echo "Deployment commands completed successfully."
 
   selenium-smoke-tests:
     name: Selenium Smoke Tests
     runs-on: ubuntu-latest
     needs: deploy
-
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -82,37 +85,36 @@ jobs:
           python-version: "3.13"
 
       - name: Install Chrome
-        uses: browser-actions/setup-chrome@v2
+        uses: browser-actions/setup-chrome@latest
         with:
-          chrome-version: "153.0.8010.52"
+          chrome-version: "latest"
           install-chromedriver: true
 
       - name: Install Selenium test dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install selenium pytest
+          python -m pip install selenium pytest requests
 
       - name: Wait for deployed Internship page
         env:
           INTERNSHIP_BASE_URL: https://www.chakorahub.com
         run: |
           for attempt in {1..12}; do
-            if curl --fail --silent --show-error --location --max-time 10               "$INTERNSHIP_BASE_URL/internships" > /dev/null; then
-              echo "Deployed Internship website is responding."
+            if curl --fail --silent --show-error --location --max-time 10 "$INTERNSHIP_BASE_URL/internships" > /dev/null; then
+              echo "Deployed website is responding."
               exit 0
             fi
-
-            echo "Internship website not ready (attempt $attempt/12)."
+            echo "Website not ready (attempt $attempt/12)."
             sleep 10
           done
-
-          echo "Deployed Internship website did not become ready."
+          echo "Deployed website did not become ready."
           exit 1
 
       - name: Run Selenium smoke tests
         env:
           INTERNSHIP_BASE_URL: https://www.chakorahub.com
           EXPECT_MAINTENANCE_NOTICE: "true"
+          RUN_WRITE_TESTS: "false"
         run: |
           pytest -v internship_smoke.py --junitxml=selenium-results.xml
 
@@ -120,7 +122,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: internship-selenium-results
+          name: selenium-results
           path: selenium-results.xml
           if-no-files-found: warn
 
@@ -129,36 +131,37 @@ jobs:
     runs-on: ubuntu-latest
     needs: selenium-smoke-tests
     if: ${{ needs.selenium-smoke-tests.result == 'success' }}
-
     steps:
       - name: Disable maintenance through Internship FastAPI
         env:
-          MAINTENANCE_OFF_URL: ${{ secrets.INTERNSHIP_MAINTENANCE_OFF_URL }}
+          INTERNSHIP_MAINTENANCE_OFF_URL: ${{ secrets.INTERNSHIP_MAINTENANCE_OFF_URL }}
+          MAINTENANCE_OFF_URL: ${{ secrets.MAINTENANCE_OFF_URL }}
           MAINTENANCE_TOKEN: ${{ secrets.MAINTENANCE_TOKEN }}
         run: |
           set -e
+          TARGET_URL="${INTERNSHIP_MAINTENANCE_OFF_URL:-$MAINTENANCE_OFF_URL}"
           echo "[maintenance:off] Starting maintenance disable request"
-
-          test -n "$MAINTENANCE_OFF_URL" || {
-            echo "Missing INTERNSHIP_MAINTENANCE_OFF_URL secret"
-            exit 1
-          }
-
+          test -n "$TARGET_URL" || { echo "Missing INTERNSHIP_MAINTENANCE_OFF_URL or MAINTENANCE_OFF_URL secret"; exit 1; }
           if [ -n "$MAINTENANCE_TOKEN" ]; then
             echo "[maintenance:off] MAINTENANCE_TOKEN is configured (length: ${#MAINTENANCE_TOKEN})"
           else
             echo "[maintenance:off] MAINTENANCE_TOKEN is empty"
             exit 1
           fi
-
-          status=$(curl --silent --show-error --location --max-time 20             --output maintenance-off-response.txt             --dump-header maintenance-off-headers.txt             --write-out "%{http_code}"             --header "Authorization: Bearer $MAINTENANCE_TOKEN"             --request POST "$MAINTENANCE_OFF_URL" || true)
-
+          echo "[maintenance:off] Endpoint is configured"
+          status=$(curl --silent --show-error --location --max-time 20 \
+            --output maintenance-off-response.txt \
+            --dump-header maintenance-off-headers.txt \
+            --write-out "%{http_code}" \
+            --header "Authorization: Bearer $MAINTENANCE_TOKEN" \
+            --request POST "$TARGET_URL" || true)
           echo "[maintenance:off] HTTP status: $status"
+          echo "[maintenance:off] Response headers:"
+          sed 's/[Aa]uthorization:[^[:space:]]*/Authorization: [redacted]/g' maintenance-off-headers.txt || true
+          echo "[maintenance:off] Response body:"
           cat maintenance-off-response.txt || true
-
           if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
             echo "[maintenance:off] Request failed"
             exit 1
           fi
-
           echo "[maintenance:off] Maintenance disabled successfully"

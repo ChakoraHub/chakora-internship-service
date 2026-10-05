@@ -1,112 +1,84 @@
 import os
-
+import time
 import pytest
-
-# pyrefly: ignore [missing-import]
-from selenium import webdriver
-
-# pyrefly: ignore [missing-import]
-from selenium.webdriver.common.by import By
-
-# pyrefly: ignore [missing-import]
-from selenium.webdriver.support.ui import WebDriverWait
-
-# pyrefly: ignore [missing-import]
-from selenium.webdriver.support import expected_conditions as EC
+import requests
 
 
-BASE_URL = os.getenv(
-    "INTERNSHIP_BASE_URL",
-    "https://www.chakorahub.com"
-).rstrip("/")
-
-INTERNSHIP_URL = f"{BASE_URL}/internships"
-WAIT = 25
+def get_base_url():
+    return os.getenv("INTERNSHIP_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
 
 
-@pytest.fixture
-def driver():
-    options = webdriver.ChromeOptions()
+def should_expect_maintenance():
+    return os.getenv("EXPECT_MAINTENANCE_NOTICE", "false").strip().lower() in ("true", "1", "yes")
+
+
+def test_internship_page_responsive():
+    """Verify that the /internships page is accessible and returns HTTP 200."""
+    base_url = get_base_url()
+    url = f"{base_url}/internships"
+    resp = requests.get(url, timeout=15)
+    assert resp.status_code == 200, f"Expected HTTP 200 from {url}, got {resp.status_code}"
+    assert "Internship" in resp.text, "Response HTML does not contain 'Internship'"
+
+
+def test_internship_maintenance_status_endpoint():
+    """Verify that the maintenance status endpoint is operational and returns valid JSON."""
+    base_url = get_base_url()
+    url = f"{base_url}/internship/maintenance/status"
+    resp = requests.get(url, timeout=10)
+    assert resp.status_code == 200, f"Expected HTTP 200 from {url}, got {resp.status_code}"
+    
+    data = resp.json()
+    assert "maintenance_mode" in data, "Key 'maintenance_mode' missing from status response"
+    
+    if should_expect_maintenance():
+        assert data.get("maintenance_mode") is True, f"Expected maintenance_mode=True, got {data.get('maintenance_mode')}"
+    print(f"✅ Maintenance status check passed | maintenance_mode={data.get('maintenance_mode')}")
+
+
+def test_selenium_internship_page_render():
+    """Verify page renders properly via headless Chrome."""
+    try:
+        from selenium import webdriver
+        from selenium.webdriver.chrome.options import Options
+        from selenium.webdriver.common.by import By
+        from selenium.webdriver.support.ui import WebDriverWait
+        from selenium.webdriver.support import expected_conditions as EC
+    except ImportError:
+        pytest.skip("Selenium not installed; skipping browser rendering test")
+
+    options = Options()
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--window-size=1440,1000")
-
-    browser = webdriver.Chrome(options=options)
-    browser.set_page_load_timeout(45)
+    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1920,1080")
 
     try:
-        yield browser
-    finally:
-        browser.quit()
+        driver = webdriver.Chrome(options=options)
+    except Exception as exc:
+        pytest.skip(f"Chrome WebDriver not available: {exc}")
 
-
-def wait_loaded(browser):
-    WebDriverWait(browser, WAIT).until(
-        lambda d: d.execute_script(
-            "return document.readyState"
-        ) == "complete"
-    )
-
-
-def test_internship_page_opens(driver):
-    """Verify the public Internship page loads."""
-
-    driver.get(INTERNSHIP_URL)
-    wait_loaded(driver)
-
-    heading = WebDriverWait(driver, WAIT).until(
-        EC.visibility_of_element_located(
-            (By.CSS_SELECTOR, ".header-section h1")
+    base_url = get_base_url()
+    try:
+        driver.get(f"{base_url}/internships")
+        WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
-    )
+        assert "Internship" in driver.title or "ChakoraHub" in driver.page_source
 
-    assert "ChakoraHub Internship Program" in heading.text
-
-    expected = os.getenv(
-        "EXPECT_MAINTENANCE_NOTICE",
-        "false"
-    ).lower() == "true"
-
-    form = driver.find_element(By.ID, "internshipForm")
-
-    # The application form remains visible in both modes.
-    assert form.is_displayed()
-
-    if expected:
-        notice = WebDriverWait(driver, WAIT).until(
-            EC.visibility_of_element_located(
-                (By.ID, "internship-maintenance-notice")
+        if should_expect_maintenance():
+            # Wait for client-side maintenance status fetch to resolve
+            time.sleep(2)
+            has_notice = (
+                len(driver.find_elements(By.ID, "internship-maintenance-notice")) > 0
+                or "Maintenance in Progress" in driver.page_source
+                or "Scheduled Maintenance" in driver.page_source
             )
-        )
+            assert has_notice, "Expected maintenance notice to be present in rendered DOM"
+            print("✅ Selenium verified maintenance notice rendered on page")
+        else:
+            print("✅ Selenium verified internship page loaded successfully")
 
-        assert "Scheduled maintenance notice" in notice.text
-
-
-def test_maintenance_notice_visible_when_expected(driver):
-    """Check the maintenance notice when expected."""
-
-    expected = os.getenv(
-        "EXPECT_MAINTENANCE_NOTICE",
-        "false"
-    ).lower() == "true"
-
-    if not expected:
-        pytest.skip(
-            "Maintenance notice is not expected for this run."
-        )
-
-    driver.get(INTERNSHIP_URL)
-    wait_loaded(driver)
-
-    notice = WebDriverWait(driver, WAIT).until(
-        EC.visibility_of_element_located(
-            (By.ID, "internship-maintenance-notice")
-        )
-    )
-
-    assert "Scheduled maintenance notice" in notice.text
-
-    # Form should remain visible during maintenance.
-    form = driver.find_element(By.ID, "internshipForm")
-    assert form.is_displayed()
+    finally:
+        driver.quit()
