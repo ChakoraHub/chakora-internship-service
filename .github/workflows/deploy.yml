@@ -41,11 +41,11 @@ jobs:
           sed 's/[Aa]uthorization:[^[:space:]]*/Authorization: [redacted]/g' maintenance-on-headers.txt || true
           echo "[maintenance:on] Response body:"
           cat maintenance-on-response.txt || true
-          if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
-            echo "[maintenance:on] Request failed"
-            exit 1
+          if [ "$status" -ge 200 ] && [ "$status" -lt 300 ]; then
+            echo "[maintenance:on] Maintenance enabled successfully"
+          else
+            echo "[maintenance:on] Warning: Service endpoint returned $status prior to deployment. Proceeding with deployment to start/restart PM2..."
           fi
-          echo "[maintenance:on] Maintenance enabled successfully"
 
   deploy:
     name: Deploy Internship to EC2
