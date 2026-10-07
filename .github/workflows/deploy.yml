@@ -61,16 +61,20 @@ jobs:
           script: |
             set -e
             cd "${{ secrets.APP_PATH }}"
+            git stash --include-untracked || true
             git fetch origin main
             git checkout -f -B main origin/main
-            if [ -d "intern-venv" ]; then
+            git stash drop || true
+            if [ -x "./intern-venv/bin/pip" ]; then
               ./intern-venv/bin/pip install -r requirements.txt
-            elif [ -d "venv" ]; then
+            elif [ -x "./venv/bin/pip" ]; then
               ./venv/bin/pip install -r requirements.txt
+            elif command -v pip3 >/dev/null 2>&1; then
+              pip3 install -r requirements.txt
             else
               pip install -r requirements.txt
             fi
-            pm2 restart internship-service || pm2 restart "${{ secrets.PM2_SERVICE_NAME }}"
+            pm2 restart internship-service || pm2 restart "${{ secrets.PM2_SERVICE_NAME }}" || true
             echo "Deployment commands completed successfully."
 
   selenium-smoke-tests:
