@@ -65,14 +65,16 @@ jobs:
             git fetch origin main
             git checkout -f -B main origin/main
             git stash drop || true
-            if [ -x "./intern-venv/bin/pip" ]; then
-              ./intern-venv/bin/pip install -r requirements.txt
-            elif [ -x "./venv/bin/pip" ]; then
-              ./venv/bin/pip install -r requirements.txt
-            elif command -v pip3 >/dev/null 2>&1; then
-              pip3 install -r requirements.txt
-            else
-              pip install -r requirements.txt
+            if [ -f "requirements.txt" ]; then
+              if [ -x "./intern-venv/bin/pip" ]; then
+                ./intern-venv/bin/pip install -r requirements.txt
+              elif [ -x "./venv/bin/pip" ]; then
+                ./venv/bin/pip install -r requirements.txt
+              elif command -v pip3 >/dev/null 2>&1; then
+                pip3 install -r requirements.txt
+              else
+                pip install -r requirements.txt
+              fi
             fi
             pm2 restart internship-service || pm2 restart "${{ secrets.PM2_SERVICE_NAME }}" || true
             echo "Deployment commands completed successfully."
