@@ -76,6 +76,7 @@ jobs:
                 pip install -r requirements.txt
               fi
             fi
+            touch /home/ec2-user/internship-maintenance.flag internship-maintenance.flag /tmp/internship-maintenance.flag || true
             pm2 restart internship-service || pm2 restart "${{ secrets.PM2_SERVICE_NAME }}" || true
             echo "Deployment commands completed successfully."
 
