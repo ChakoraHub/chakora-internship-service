@@ -129,9 +129,11 @@ def verify_maintenance_token(request: Request):
         )
 
 
-@app.post("/admin/internship/maintenance/on")
-@app.post("/api/admin/internship/maintenance/on")
-@app.post("/api/internship/maintenance/on")
+@app.api_route("/maintenance/on", methods=["GET", "POST"])
+@app.api_route("/internship/maintenance/on", methods=["GET", "POST"])
+@app.api_route("/admin/internship/maintenance/on", methods=["GET", "POST"])
+@app.api_route("/api/admin/internship/maintenance/on", methods=["GET", "POST"])
+@app.api_route("/api/internship/maintenance/on", methods=["GET", "POST"])
 def enable_maintenance(request: Request):
     verify_maintenance_token(request)
 
@@ -156,9 +158,11 @@ def enable_maintenance(request: Request):
     }
 
 
-@app.post("/admin/internship/maintenance/off")
-@app.post("/api/admin/internship/maintenance/off")
-@app.post("/api/internship/maintenance/off")
+@app.api_route("/maintenance/off", methods=["GET", "POST"])
+@app.api_route("/internship/maintenance/off", methods=["GET", "POST"])
+@app.api_route("/admin/internship/maintenance/off", methods=["GET", "POST"])
+@app.api_route("/api/admin/internship/maintenance/off", methods=["GET", "POST"])
+@app.api_route("/api/internship/maintenance/off", methods=["GET", "POST"])
 def disable_maintenance(request: Request):
     verify_maintenance_token(request)
 
