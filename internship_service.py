@@ -92,7 +92,14 @@ MAINTENANCE_TOKEN = os.getenv("MAINTENANCE_TOKEN", "chakora-maintenance-token")
 
 
 def is_maintenance_enabled() -> bool:
-    return MAINTENANCE_FLAG.exists()
+    candidate_paths = [
+        MAINTENANCE_FLAG,
+        pathlib.Path(__file__).parent / "internship-maintenance.flag",
+        pathlib.Path.cwd() / "internship-maintenance.flag",
+        pathlib.Path("/home/ec2-user/internship-maintenance.flag"),
+        pathlib.Path("/tmp/internship-maintenance.flag"),
+    ]
+    return any(p.exists() for p in candidate_paths)
 
 
 @app.get("/maintenance/status")
@@ -128,12 +135,19 @@ def verify_maintenance_token(request: Request):
 def enable_maintenance(request: Request):
     verify_maintenance_token(request)
 
-    MAINTENANCE_FLAG.parent.mkdir(
-        parents=True,
-        exist_ok=True
-    )
-
-    MAINTENANCE_FLAG.touch()
+    target_paths = [
+        MAINTENANCE_FLAG,
+        pathlib.Path(__file__).parent / "internship-maintenance.flag",
+        pathlib.Path.cwd() / "internship-maintenance.flag",
+        pathlib.Path("/home/ec2-user/internship-maintenance.flag"),
+        pathlib.Path("/tmp/internship-maintenance.flag"),
+    ]
+    for p in target_paths:
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.touch()
+        except Exception:
+            pass
 
     return {
         "success": True,
@@ -148,9 +162,18 @@ def enable_maintenance(request: Request):
 def disable_maintenance(request: Request):
     verify_maintenance_token(request)
 
-    MAINTENANCE_FLAG.unlink(
-        missing_ok=True
-    )
+    target_paths = [
+        MAINTENANCE_FLAG,
+        pathlib.Path(__file__).parent / "internship-maintenance.flag",
+        pathlib.Path.cwd() / "internship-maintenance.flag",
+        pathlib.Path("/home/ec2-user/internship-maintenance.flag"),
+        pathlib.Path("/tmp/internship-maintenance.flag"),
+    ]
+    for p in target_paths:
+        try:
+            p.unlink(missing_ok=True)
+        except Exception:
+            pass
 
     return {
         "success": True,
