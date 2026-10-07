@@ -19,6 +19,8 @@ jobs:
         run: |
           set -e
           TARGET_URL="${INTERNSHIP_MAINTENANCE_ON_URL:-$MAINTENANCE_ON_URL}"
+          TARGET_URL=$(echo "$TARGET_URL" | tr -d '\r\n"' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+          MAINTENANCE_TOKEN=$(echo "$MAINTENANCE_TOKEN" | tr -d '\r\n"' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
           echo "[maintenance:on] Starting maintenance enable request"
           test -n "$TARGET_URL" || { echo "Missing INTERNSHIP_MAINTENANCE_ON_URL or MAINTENANCE_ON_URL secret"; exit 1; }
           if [ -n "$MAINTENANCE_TOKEN" ]; then
@@ -27,7 +29,7 @@ jobs:
             echo "[maintenance:on] MAINTENANCE_TOKEN is empty"
             exit 1
           fi
-          echo "[maintenance:on] Endpoint is configured"
+          echo "[maintenance:on] Endpoint is configured: $TARGET_URL"
           status=$(curl --silent --show-error --location --max-time 20 \
             --output maintenance-on-response.txt \
             --dump-header maintenance-on-headers.txt \
@@ -39,11 +41,11 @@ jobs:
           sed 's/[Aa]uthorization:[^[:space:]]*/Authorization: [redacted]/g' maintenance-on-headers.txt || true
           echo "[maintenance:on] Response body:"
           cat maintenance-on-response.txt || true
-          if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
-            echo "[maintenance:on] Request failed"
-            exit 1
+          if [ "$status" -ge 200 ] && [ "$status" -lt 300 ]; then
+            echo "[maintenance:on] Maintenance enabled successfully"
+          else
+            echo "[maintenance:on] Warning: Service endpoint returned $status prior to deployment. Proceeding with deployment to start/restart PM2..."
           fi
-          echo "[maintenance:on] Maintenance enabled successfully"
 
   deploy:
     name: Deploy Internship to EC2
@@ -140,6 +142,8 @@ jobs:
         run: |
           set -e
           TARGET_URL="${INTERNSHIP_MAINTENANCE_OFF_URL:-$MAINTENANCE_OFF_URL}"
+          TARGET_URL=$(echo "$TARGET_URL" | tr -d '\r\n"' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+          MAINTENANCE_TOKEN=$(echo "$MAINTENANCE_TOKEN" | tr -d '\r\n"' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
           echo "[maintenance:off] Starting maintenance disable request"
           test -n "$TARGET_URL" || { echo "Missing INTERNSHIP_MAINTENANCE_OFF_URL or MAINTENANCE_OFF_URL secret"; exit 1; }
           if [ -n "$MAINTENANCE_TOKEN" ]; then
@@ -148,7 +152,7 @@ jobs:
             echo "[maintenance:off] MAINTENANCE_TOKEN is empty"
             exit 1
           fi
-          echo "[maintenance:off] Endpoint is configured"
+          echo "[maintenance:off] Endpoint is configured: $TARGET_URL"
           status=$(curl --silent --show-error --location --max-time 20 \
             --output maintenance-off-response.txt \
             --dump-header maintenance-off-headers.txt \

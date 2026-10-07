@@ -95,6 +95,7 @@ def is_maintenance_enabled() -> bool:
     return MAINTENANCE_FLAG.exists()
 
 
+@app.get("/maintenance/status")
 @app.get("/internship/maintenance/status")
 @app.get("/api/internship/maintenance/status")
 def maintenance_status():
